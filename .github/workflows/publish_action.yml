@@ -35,8 +35,15 @@ jobs:
           echo "Secret is configured."
 
       - name: Publish Custom Node
-        # 固定在发布版上，不跟 main 跑：避免上游改动带来意外，
-        # 也避免"谁控制那个仓库谁就能拿到我们的 Secret"。
-        uses: Comfy-Org/publish-node-action@1.0.1
+        # ★ 用 @main，不要固定版本 —— 这里踩过一次坑：
+        # 固定到 1.0.1 后 CI 直接失败（exit code 2，30 秒内）。
+        # 原因：这个 action 内部跑 `pip install comfy-cli`（永远装最新版），
+        # 而 1.0.1 里写的是 `comfy --yes env` —— 新版 comfy-cli 不再接受 --yes，
+        # click 类 CLI 遇非法参数就退 2。main 已改成
+        # `comfy --skip-prompt --no-enable-telemetry env`。
+        # 官方文档用的也是 @main。**跟着上游走，别自作聪明钉版本。**
+        # （如果哪天要钉，钉 commit SHA，别钉 release tag —— tag 和 comfy-cli
+        #   的最新版会错位，而 action 自己不锁 comfy-cli 版本。）
+        uses: Comfy-Org/publish-node-action@main
         with:
           personal_access_token: ${{ secrets.REGISTRY_ACCESS_TOKEN }}
