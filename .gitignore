@@ -15,3 +15,8 @@ index-cache.json.gz
 .idea/
 .DS_Store
 Thumbs.db
+
+# git 操作事故时留下的 .git 备份目录。
+# 2026-09-11 曾把这种目录顺手 git add 进仓库（26 个无关文件），
+# 靠 --amend 才修掉 —— 见 docs/HANDOFF.md 工程规则 14。挡住它。
+.git.broken*/

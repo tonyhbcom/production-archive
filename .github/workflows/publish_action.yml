@@ -1,0 +1,31 @@
+name: Publish to Comfy registry
+
+# 什么时候触发：
+#   1) push 到 main 且改动了 pyproject.toml（也就是你改了版本号）
+#   2) 也可以在 GitHub 网页上手动点 "Run workflow"
+#
+# 为什么用这个方式而不是本地 `comfy node publish`：
+#   把 API Key 存在 GitHub Secret 里，不用每次手动输；
+#   而且以后发新版 = 改个版本号 push 一下，剩下自动。
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "pyproject.toml"
+
+jobs:
+  publish-node:
+    name: Publish Custom Node to registry
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+      - name: Publish Custom Node
+        uses: Comfy-Org/publish-node-action@main
+        with:
+          # 这个 Secret 需要你自己在仓库里建：
+          #   Settings → Secrets and variables → Actions → New repository secret
+          #   名字必须是 REGISTRY_ACCESS_TOKEN，值是从 registry.comfy.org 生成的 API Key
+          personal_access_token: ${{ secrets.REGISTRY_ACCESS_TOKEN }}
