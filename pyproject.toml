@@ -1,0 +1,20 @@
+[project]
+name = "production-archive"
+description = "把 ComfyUI 输出文件里内嵌的提示词与工作流汇总成一份可搜索、可归类、可预览的档案。"
+version = "1.1.0"
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/tonyhbcom/production-archive"
+Homepage = "https://github.com/tonyhbcom/production-archive"
+
+[tool.comfy]
+PublisherId = "tonyhbcom"
+DisplayName = "Production Archive"
+# 图标已随包提供：icon.png（400x400）+ icon.svg（矢量源）。
+# 推送到 GitHub 之后再填 URL —— 现在填会因为取不到图而显示坏图。
+# 填法：https://raw.githubusercontent.com/tonyhbcom/production-archive/main/icon.png
+Icon = ""
+Banner = ""

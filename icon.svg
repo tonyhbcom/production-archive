@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400" role="img" aria-label="Production Archive">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2f4f7f"/>
+      <stop offset="1" stop-color="#4a7dc4"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="400" height="400" rx="84" fill="url(#bg)"/>
+  <rect x="80" y="110" width="240" height="180" rx="20" fill="#eef4ff"/>
+  <rect x="104" y="122" width="24" height="20" rx="5" fill="#2f4f7f"/>
+  <rect x="160" y="122" width="24" height="20" rx="5" fill="#2f4f7f"/>
+  <rect x="216" y="122" width="24" height="20" rx="5" fill="#2f4f7f"/>
+  <rect x="272" y="122" width="24" height="20" rx="5" fill="#2f4f7f"/>
+  <rect x="104" y="258" width="24" height="20" rx="5" fill="#2f4f7f"/>
+  <rect x="160" y="258" width="24" height="20" rx="5" fill="#2f4f7f"/>
+  <rect x="216" y="258" width="24" height="20" rx="5" fill="#2f4f7f"/>
+  <rect x="272" y="258" width="24" height="20" rx="5" fill="#2f4f7f"/>
+  <rect x="112" y="152" width="176" height="12" rx="6" fill="#2f4f7f"/>
+  <rect x="112" y="194" width="128" height="12" rx="6" fill="#2f4f7f"/>
+  <rect x="112" y="236" width="152" height="12" rx="6" fill="#2f4f7f"/>
+</svg>

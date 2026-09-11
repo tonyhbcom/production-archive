@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 本插件运行时生成的索引缓存（位置在 ComfyUI user 目录，这里兜底挡一下）
+index-cache.json.gz
+.archive_cache.json
+*.tmp
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
