@@ -9,6 +9,11 @@
 
 适用于任何 ComfyUI 工作流，不限定模型或节点包。
 
+> **作者 / 出处**：[@tonyhbcom](https://github.com/tonyhbcom) ·
+> 官方仓库 <https://github.com/tonyhbcom/production-archive>
+> （本插件为 MIT 许可，可自由使用与修改，但请保留 `LICENSE` 中的版权声明。
+> 如果你在别处看到这个插件，以官方仓库为准 —— 那边的版本最新。）
+
 ---
 
 ## 先看界面
