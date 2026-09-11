@@ -1638,7 +1638,9 @@ function ensurePreview() {
   }, { passive: false });
 
   // 放大后按住画面拖动平移（上下左右随便拉）
-  let dragged = false;      // 刚拖过 → 吃掉随之而来的 click
+  // 用 PV.dragged 而不是局部变量 —— 更新媒体时绑在 img 上的「点图=全屏」也要读它。
+  // 那一击发生在 target 阶段，比下面的冒泡拦截更早，只能在源头挡。
+  PV.dragged = false;
 
   bodyEl.addEventListener("mousedown", e => {
     if (e.button !== 0 || PV.scale <= 1) return;   // 没放大就不平移，避免误触
@@ -1654,28 +1656,32 @@ function ensurePreview() {
     const sx = e.clientX, sy = e.clientY, ox = PV.px, oy = PV.py;
     bodyEl.classList.add("dragging");
     const move = ev => {
-      PV.px = ox + (ev.clientX - sx);
-      PV.py = oy + (ev.clientY - sy);
-      dragged = true;
+      const dx = ev.clientX - sx, dy = ev.clientY - sy;
+      // 真的移动了才算「拖动」；手抖一两像素不算，免得吃掉正常的单击
+      if (Math.abs(dx) + Math.abs(dy) > 3) PV.dragged = true;
+      PV.px = ox + dx;
+      PV.py = oy + dy;
       applyZoom();
     };
     const up = () => {
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
       bodyEl.classList.remove("dragging");
-      if (dragged) setTimeout(() => { dragged = false; }, 0);
+      // click 是 mouseup 之后同步派发的，必须延到下一个宏任务再复位，
+      // 否则 img.onclick 读到的已经是 false，一松手又全屏。
+      if (PV.dragged) setTimeout(() => { PV.dragged = false; }, 0);
     };
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
   });
 
   // 掐断冒泡：comfyui-custom-scripts（pysssss）的灯箱在 document 上监听图片点击，
-  // 一冒上去就把画面换成它自己的全屏大图 —— 这正是"一松手就放最大"的真相。
-  // 视频不受影响，因为那个灯箱只认 img。
+  // 一冒上去就把画面换成它自己的全屏大图。
+  // 注意这条只是补刀 —— 拦不住我们自己的 img.onclick，那个在 target 阶段就跑完了。
   ["click", "dblclick", "auxclick"].forEach(t => {
     bodyEl.addEventListener(t, e => {
       e.stopPropagation();
-      if (dragged) e.preventDefault();
+      if (PV.dragged) e.preventDefault();
     });
   });
 
@@ -1940,9 +1946,14 @@ function renderPreview() {
       pv.body.innerHTML = '<div style="padding:20px;color:#e08a8a;font-size:12px;text-align:center">' +
         "读取失败。该文件可能已被移动或删除。</div>";
     };
-    // 点一下图片 = 全屏
+    // 点一下图片 = 全屏。但「拖动收尾」的那一下不能算点击：
+    // onclick 绑在 img 自己身上（target 阶段），比 bodyEl 上的冒泡拦截更早执行，
+    // 所以必须在源头用 PV.dragged 挡掉 —— 否则拖一次全屏、再拖一次还原，来回跳。
     img.style.cursor = "zoom-in";
-    img.onclick = () => pv.wrap.classList.toggle("full");
+    img.onclick = () => {
+      if (PV.dragged) return;
+      pv.wrap.classList.toggle("full");
+    };
     pv.body.appendChild(img);
   }
   pv.scale = 1;
