@@ -13,8 +13,8 @@ Homepage = "https://github.com/tonyhbcom/production-archive"
 [tool.comfy]
 PublisherId = "tonyhbcom"
 DisplayName = "Production Archive"
-# 图标已随包提供：icon.png（400x400）+ icon.svg（矢量源）。
-# 推送到 GitHub 之后再填 URL —— 现在填会因为取不到图而显示坏图。
-# 填法：https://raw.githubusercontent.com/tonyhbcom/production-archive/main/icon.png
-Icon = ""
+# 图标已随包提供：icon.png（400x400，Registry/Manager 列表里显示的就是它）+ icon.svg（矢量源）。
+# 用 raw 直链 —— Registry 与 ComfyUI Manager 都能直接取到。
+Icon = "https://raw.githubusercontent.com/tonyhbcom/production-archive/main/icon.png"
+# Banner 留空：没有合适的横版宣传图，宁可空着也不放一张糊的。
 Banner = ""
