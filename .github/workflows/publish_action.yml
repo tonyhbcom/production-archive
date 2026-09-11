@@ -22,10 +22,21 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@v7
+
+      # Secret 没建时给一句人话 —— 否则报错信息让人完全摸不着头脑
+      - name: Check REGISTRY_ACCESS_TOKEN
+        env:
+          TOKEN: ${{ secrets.REGISTRY_ACCESS_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::error title=Missing Secret::REGISTRY_ACCESS_TOKEN is not set. Go to Settings > Secrets and variables > Actions > New repository secret, and use the API key from registry.comfy.org"
+            exit 1
+          fi
+          echo "Secret is configured."
+
       - name: Publish Custom Node
-        uses: Comfy-Org/publish-node-action@main
+        # 固定在发布版上，不跟 main 跑：避免上游改动带来意外，
+        # 也避免"谁控制那个仓库谁就能拿到我们的 Secret"。
+        uses: Comfy-Org/publish-node-action@1.0.1
         with:
-          # 这个 Secret 需要你自己在仓库里建：
-          #   Settings → Secrets and variables → Actions → New repository secret
-          #   名字必须是 REGISTRY_ACCESS_TOKEN，值是从 registry.comfy.org 生成的 API Key
           personal_access_token: ${{ secrets.REGISTRY_ACCESS_TOKEN }}
