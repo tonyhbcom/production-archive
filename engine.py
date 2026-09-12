@@ -27,13 +27,94 @@ import threading
 
 from . import store
 
-CACHE_VERSION = 3
+CACHE_VERSION = 4                  # 3 → 4：提示词识别策略修正，旧缓存里的错值要重扫
 PNG_HEAD_BYTES = 320 * 1024        # PNG 的 tEXt 在 IDAT 之前，读头部即可
 MP4_TAIL_BYTES = 1024 * 1024       # MP4 的 moov 在文件末尾
 MEDIA_EXT = (".png", ".mp4")
 
 # 读取 seed 的节点类型：不同工作流可能用其中任意一个
 SEED_NODES = ("RandomNoise", "KSampler", "KSamplerAdvanced")
+
+# --------------------------------------------------------------- 提示词识别
+# 这些字段装的是文件名 / 路径 / 资源名，不是提示词。
+# ⚠️ 2026-09-12 教训：旧策略是「所有字符串里取最长的那个」，被模型文件名坑死 ——
+#    Krea 2 工作流里 "krea2_turbo_int8_convrot.safetensors" 36 字，
+#    赢了真正的提示词 35 字，面板上就显示成一串文件名。
+#    之前那套工作流的提示词几百字，所以这个坑一直到换模型才暴露。
+NON_TEXT_KEYS = frozenset((
+    "unet_name", "lora_name", "vae_name", "clip_name", "ckpt_name",
+    "control_net_name", "model_name", "style_model_name", "gligen_name",
+    "embedding_name", "filename_prefix", "filename", "file", "path",
+    "directory", "image", "mask", "audio", "video", "output_path",
+    "custom_path", "save_path", "output_dir",
+))
+
+# 值以这些后缀结尾 → 判定为文件名，不作为提示词
+RESOURCE_EXTS = (
+    ".safetensors", ".sft", ".ckpt", ".pt", ".pth", ".gguf", ".bin", ".onnx",
+    ".vae", ".yaml", ".yml", ".json", ".txt", ".csv", ".zip", ".7z", ".rar",
+    ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif",
+    ".mp4", ".mov", ".webm", ".mkv", ".avi", ".wav", ".mp3", ".flac",
+)
+
+# 已知的「文本载体」节点 —— 提示词优先从这些节点里找
+TEXT_NODES = frozenset((
+    "CLIPTextEncode", "CLIPTextEncodeSDXL", "CLIPTextEncodeFlux",
+    "CLIPTextEncodeSDXLRefiner", "BNK_CLIPTextEncodeAdvanced",
+    "PrimitiveString", "PrimitiveStringMultiline",
+    "Text", "String Literal", "Text Multiline",
+    "Text Multiline (Code Compatible)", "MultilineText", "Textbox",
+    "Prompt", "ttN text",
+))
+
+
+def _looks_like_resource(v: str) -> bool:
+    """长得像文件名（以模型/媒体后缀结尾）就不是提示词。"""
+    return v.strip().lower().endswith(RESOURCE_EXTS)
+
+
+def _pick_prompt(api: dict, wf: dict) -> str:
+    """挑出提示词。分三层，前一层拿不到才退到下一层。
+
+    ① 文本节点里的最长串（排除文件名字段与资源后缀）
+    ② 其他节点里的最长串（同样排除）—— 有些自定义节点不叫标准名
+    ③ 全部字符串里最长（退到旧行为，保证不会比原来更差）
+    """
+    text_best = other_best = any_best = ""
+
+    for node in api.values():
+        if not isinstance(node, dict):
+            continue
+        ct = node.get("class_type", "")
+        for key, v in (node.get("inputs") or {}).items():
+            if not isinstance(v, str):
+                continue
+            v = v.strip()
+            if not v:
+                continue
+            if len(v) > len(any_best):
+                any_best = v
+            if key in NON_TEXT_KEYS or _looks_like_resource(v):
+                continue
+            if ct in TEXT_NODES:
+                if len(v) > len(text_best):
+                    text_best = v
+            elif len(v) > len(other_best):
+                other_best = v
+
+    # 前端图兜底：有些节点的文本只落在 widgets_values 里
+    if isinstance(wf, dict):
+        for node in (wf.get("nodes") or []):
+            if not isinstance(node, dict) or node.get("type") not in TEXT_NODES:
+                continue
+            for v in (node.get("widgets_values") or []):
+                if isinstance(v, str) and v.strip() and not _looks_like_resource(v):
+                    if len(v.strip()) > len(text_best):
+                        text_best = v.strip()
+
+    if _looks_like_resource(any_best):
+        any_best = ""          # 兜底也不能把文件名当提示词 —— 宁可显示「无」
+    return text_best or other_best or any_best
 
 
 # ---------------------------------------------------------------- 元数据读取
@@ -158,20 +239,14 @@ def _parse(prompt_json: str, wf_json: str) -> dict:
         api = json.loads(prompt_json) if prompt_json else {}
     except Exception:
         api = {}
-    longest = ""
-    if isinstance(api, dict):
-        for node in api.values():
-            if not isinstance(node, dict):
-                continue
-            for v in (node.get("inputs") or {}).values():
-                if isinstance(v, str) and len(v) > len(longest):
-                    longest = v
-    rec["p"] = longest
-
     try:
         wf = json.loads(wf_json) if wf_json else {}
     except Exception:
         wf = {}
+
+    rec["p"] = _pick_prompt(api if isinstance(api, dict) else {},
+                            wf if isinstance(wf, dict) else {})
+
     refs = []
     if isinstance(wf, dict):
         for node in (wf.get("nodes") or []):
