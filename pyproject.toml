@@ -1,7 +1,7 @@
 [project]
 name = "production-archive"
 description = "把 ComfyUI 输出文件里内嵌的提示词与工作流汇总成一份可搜索、可归类、可预览的档案。"
-version = "1.1.0"
+version = "1.1.1"
 license = { file = "LICENSE" }
 requires-python = ">=3.9"
 dependencies = []
