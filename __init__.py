@@ -32,7 +32,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {}
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
 
-__version__ = "1.1.1"
+__version__ = "1.1.2"
 
 # 面板里展示的「本次更新」——发新版时同步更新
 RELEASE_NOTES = [

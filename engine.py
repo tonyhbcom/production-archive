@@ -27,7 +27,7 @@ import threading
 
 from . import store
 
-CACHE_VERSION = 4                  # 3 → 4：提示词识别策略修正，旧缓存里的错值要重扫
+CACHE_VERSION = 5                  # 4 → 5：前端图兜底收紧，悬空节点的旧稿不再冒充提示词
 PNG_HEAD_BYTES = 320 * 1024        # PNG 的 tEXt 在 IDAT 之前，读头部即可
 MP4_TAIL_BYTES = 1024 * 1024       # MP4 的 moov 在文件末尾
 MEDIA_EXT = (".png", ".mp4")
@@ -41,6 +41,12 @@ SEED_NODES = ("RandomNoise", "KSampler", "KSamplerAdvanced")
 #    Krea 2 工作流里 "krea2_turbo_int8_convrot.safetensors" 36 字，
 #    赢了真正的提示词 35 字，面板上就显示成一串文件名。
 #    之前那套工作流的提示词几百字，所以这个坑一直到换模型才暴露。
+# ⚠️ 2026-09-14 教训：除文件名外，**画布上的历史草稿**同样会冒充提示词。
+#    前端图（workflow）里含整个画布，包括没接线（孤岛）和 mode=4（静音）的节点；
+#    API 图（prompt）只含本次真正执行的节点。两边的文本一比长短，
+#    没用上的旧稿就会盖掉真正送进模型的提示词 ——
+#    Krea 2 老图真提示词 10 字，旁边静音节点 648 字，面板上显示的就是那段旧稿。
+#    → 前端图只做「API 完全没有文本」时的兜底，且必须排除静音节点与孤岛节点。
 NON_TEXT_KEYS = frozenset((
     "unet_name", "lora_name", "vae_name", "clip_name", "ckpt_name",
     "control_net_name", "model_name", "style_model_name", "gligen_name",
@@ -78,13 +84,20 @@ def _pick_prompt(api: dict, wf: dict) -> str:
 
     ① 文本节点里的最长串（排除文件名字段与资源后缀）
     ② 其他节点里的最长串（同样排除）—— 有些自定义节点不叫标准名
-    ③ 全部字符串里最长（退到旧行为，保证不会比原来更差）
+    ③ 前端图兜底 —— **仅当 ①② 都拿不到时**，且只认本次执行真正用到的节点
+
+    ③ 的三个守卫，少一个就会被「历史草稿」钻空子（详见上方 2026-09-14 教训）：
+      · 只在 text_best 为空时触发 —— 不跟 API 的结果比长短
+      · 跳过 mode=2/4 的节点 —— 旁路 / 静音，本次执行根本没用到
+      · 跳过 id 不在 API 图里的节点 —— 画布上的孤岛（没接线）
     """
     text_best = other_best = any_best = ""
+    api_ids = set()
 
-    for node in api.values():
+    for nid, node in api.items():
         if not isinstance(node, dict):
             continue
+        api_ids.add(str(nid))
         ct = node.get("class_type", "")
         for key, v in (node.get("inputs") or {}).items():
             if not isinstance(v, str):
@@ -103,10 +116,14 @@ def _pick_prompt(api: dict, wf: dict) -> str:
                 other_best = v
 
     # 前端图兜底：有些节点的文本只落在 widgets_values 里
-    if isinstance(wf, dict):
+    if not text_best and isinstance(wf, dict):
         for node in (wf.get("nodes") or []):
             if not isinstance(node, dict) or node.get("type") not in TEXT_NODES:
                 continue
+            if node.get("mode") in (2, 4):          # 旁路 / 静音：本次执行没用它
+                continue
+            if api_ids and str(node.get("id")) not in api_ids:
+                continue                            # 孤岛节点：没接线，没参与执行
             for v in (node.get("widgets_values") or []):
                 if isinstance(v, str) and v.strip() and not _looks_like_resource(v):
                     if len(v.strip()) > len(text_best):
