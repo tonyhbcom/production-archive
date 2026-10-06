@@ -16,6 +16,11 @@ production-archive
     · 删除是**软删除** —— 文件被移进 user 目录下的回收站，随时能恢复，绝不真删
     · 改名 / 移动永远整组一起（.png + .mp4 + -audio.mp4），不会把档案拆散
     · 一律限制在输出目录之内，且绝不覆盖任何已存在的文件
+
+关于「抽帧」（v1.2.0 起）：
+  预览视频时可以把**当前这一帧**抠出来存成 PNG，存到「输出目录/抽帧/视频名/」下。
+  干活的 ffmpeg 是本机已有的（一般随 ComfyUI-VideoHelperSuite 之类的插件一起来），
+  **插件本身依然不带任何第三方依赖**；实在找不到 ffmpeg，按钮会置灰并说明原因。
 """
 import asyncio
 import functools
@@ -24,7 +29,7 @@ import os
 import server
 from aiohttp import web
 
-from . import engine, fsops, store
+from . import engine, frames, fsops, store
 
 WEB_DIRECTORY = "./web"
 NODE_CLASS_MAPPINGS = {}
@@ -32,14 +37,14 @@ NODE_DISPLAY_NAME_MAPPINGS = {}
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
 
-__version__ = "1.1.2"
+__version__ = "1.2.0"
 
 # 面板里展示的「本次更新」——发新版时同步更新
 RELEASE_NOTES = [
-    "修：以前生成的图 / 视频，列表里的「提示词」显示的是一段你根本没在生成时用过的旧稿 —— 而同一个工作流新跑的图却是对的",
-    "原因是 ComfyUI 在文件里存了两份数据：「本次真正执行了什么」和「整个画布长什么样」。旧办法让两边比谁的字更长，画布上被静音 / 没接线的旧节点里留着的草稿就赢了",
-    "现在以「本次真正执行了什么」为准，不再比长短；画布快照只在前面完全取不到时兜底，且必须确认那个节点真的参与了本次生成",
-    "升级后索引会自动重建一次，不用手动点刷新",
+    "新功能：预览视频时可以「抽帧」—— 暂停在你满意的那一帧（或输入秒数跳过去），点一下就存成 PNG",
+    "存到 输出目录\\抽帧\\<视频名>\\，文件名带时间码；同一个时间点重复抽不会覆盖，自动加编号",
+    "抽出的帧会带上原视频的提示词 —— 在档案库里能看出它出自哪条片子，不会变成没头没尾的孤儿图",
+    "干活的是本机已有的 ffmpeg（通常随 ComfyUI-VideoHelperSuite 之类的插件一起来），插件本身依然不带任何第三方依赖",
 ]
 
 PKG_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -419,6 +424,49 @@ async def pa_trash_post(request):
         return web.json_response(
             {"ok": False, "error": "%s: %s" % (type(e).__name__, e)}, status=500)
     engine.invalidate()
+    return web.json_response({"ok": True, "result": res})
+
+
+# ------------------------------------------------------ 抽帧（v1.2.0 新增）
+
+@routes.get("/productionarchive/frames")
+async def pa_frames_probe(request):
+    """抽帧能力探测 —— 前端据此决定「抽帧」按钮能不能点。"""
+    info = await _run(frames.probe)
+    return web.json_response({"ok": True, **info})
+
+
+@routes.post("/productionarchive/frame")
+async def pa_frame(request):
+    """从视频里抽一帧存成 PNG。
+
+    body:
+      {"action":"grab", "f":"某目录/某条视频.mp4", "t":3.42}   抽帧
+      {"action":"open", "dir":"抽帧/xxx"}                     打开抽帧目录
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    act = str(body.get("action") or "grab").strip()
+    out = _output_dir()
+    try:
+        if act == "grab":
+            res = await _run(frames.grab, out, body.get("f"), body.get("t"),
+                             body.get("dir") or "")
+            engine.invalidate()          # 新抽出来的帧，下次刷新就能出现
+        elif act == "open":
+            d = _safe_join(out, body.get("dir") or "")
+            if not d or not os.path.isdir(d):
+                raise ValueError("目录不存在")
+            res = await _run(fsops.open_dir, d)
+        else:
+            raise ValueError("未知操作：%s" % (act or "(空)"))
+    except (ValueError, RuntimeError) as e:
+        return web.json_response({"ok": False, "error": str(e)}, status=400)
+    except Exception as e:
+        return web.json_response(
+            {"ok": False, "error": "%s: %s" % (type(e).__name__, e)}, status=500)
     return web.json_response({"ok": True, "result": res})
 
 

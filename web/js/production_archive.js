@@ -11,6 +11,8 @@ const FILE_API = "/productionarchive/file";
 const ASSET_API = "/productionarchive/asset";    // 资产：删 / 移 / 改名（v1.1.0）
 const DIR_API = "/productionarchive/dir";        // 目录改名（v1.1.0）
 const TRASH_API = "/productionarchive/trash";    // 回收站（v1.1.0）
+const FRAME_API = "/productionarchive/frame";    // 抽帧：抽一帧 / 开抽帧目录（v1.2.0）
+const FRAMES_API = "/productionarchive/frames";  // 抽帧：能力探测（v1.2.0）
 const PAGE_SIZE = 150;
 const UNASSIGNED = "\u0000未归类";   // 内部哨兵：代表「未归类」这个筛选项
 
@@ -38,6 +40,7 @@ const S = {
   mounts: [],
   thumbs: true,       // 列表缩略图开关（v1.1.0）
   redraw: null,       // paint() 里注册的列表重绘函数，供工具栏开关复用
+  ffmpeg: null,       // 抽帧能力探测结果 {ready, exe, reason}（v1.2.0）；null = 还没探过
 };
 
 // 缩略图开关记忆（localStorage 不可用时静默降级成默认开）
@@ -202,6 +205,24 @@ const CSS = `
 .papv-resize{position:absolute;right:0;bottom:0;width:17px;height:17px;cursor:nwse-resize;
   background:linear-gradient(135deg,transparent 45%,#5a5a5a 45%,#5a5a5a 55%,transparent 55%,transparent 68%,#5a5a5a 68%,#5a5a5a 78%,transparent 78%)}
 .papv-zoom{font-size:10.5px;opacity:.6;min-width:38px;text-align:center}
+/* 抽帧条（v1.2.0）—— 只在预览视频时出现，看图片时不占地方 */
+.papv-bar{display:none;flex:0 0 auto;align-items:center;gap:6px;padding:5px 9px;
+  border-top:1px solid #3a3a3a;background:rgba(18,18,18,.92);font-size:11.5px;color:#cfcfcf}
+.papv-bar.on{display:flex}
+.papv-tc{font-family:ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums;
+  min-width:104px;color:#e8e8e8}
+.papv-seek{width:64px;background:#1b1b1b;border:1px solid #4a4a4a;border-radius:5px;
+  color:#e8e8e8;padding:2px 5px;font-size:11.5px;outline:none}
+.papv-seek:focus{border-color:#5b8fd0}
+.papv-grab{flex:0 0 auto;white-space:nowrap}
+.papv-grab[disabled]{opacity:.45;cursor:not-allowed}
+.papv-msg{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;opacity:.85}
+.papv-msg.ok{color:#8fce8f;opacity:1}
+.papv-msg.bad{color:#e08a8a;opacity:1}
+.papv-openlink{flex:0 0 auto;display:none;text-decoration:underline;cursor:pointer;
+  opacity:.9;white-space:nowrap}
+.papv-openlink.on{display:inline}
 `;
 
 function injectCSS() {
@@ -1570,6 +1591,15 @@ function ensurePreview() {
       "</span>" +
     "</div>" +
     '<div class="papv-body"></div>' +
+    // 抽帧条（v1.2.0）—— 只有预览视频时才显示，看图片时不占地方
+    '<div class="papv-bar">' +
+      '<span class="papv-tc">0.00 / 0.00 s</span>' +
+      '<input class="papv-seek" type="text" inputmode="decimal" placeholder="跳到 __ 秒"' +
+        ' title="输入秒数后按回车 —— 会跳过去并暂停，方便看清了再抽" />' +
+      '<button class="pa-btn papv-grab" title="把当前这一帧存成 PNG">抽帧保存</button>' +
+      '<span class="papv-msg"></span>' +
+      '<span class="papv-openlink">打开文件夹</span>' +
+    "</div>" +
     '<div class="papv-resize" title="拖动调整窗口大小"></div>';
   document.body.appendChild(wrap);
 
@@ -1580,7 +1610,13 @@ function ensurePreview() {
 
   PV = { wrap, head, body: bodyEl, scale: 1, px: 0, py: 0,
          title: wrap.querySelector(".papv-title"),
-         src: wrap.querySelector(".papv-src"), items: [], idx: 0 };
+         src: wrap.querySelector(".papv-src"), items: [], idx: 0,
+         bar: wrap.querySelector(".papv-bar"),
+         tc: wrap.querySelector(".papv-tc"),
+         seek: wrap.querySelector(".papv-seek"),
+         grab: wrap.querySelector(".papv-grab"),
+         msg: wrap.querySelector(".papv-msg"),
+         openLink: wrap.querySelector(".papv-openlink") };
 
   // 平移 + 缩放必须一起用 translate：
   // 只写 scale 的话，CSS transform **不改变元素的布局尺寸**，外层那个
@@ -1879,10 +1915,12 @@ function openPreview(r, startIdx) {
   const ks = kindsOf(r);
   const items = [];
   if (ks.has("mp4")) {
+    const vsuf = r.a ? "-audio.mp4" : ".mp4";
     items.push({
       label: r.a ? "视频（带音轨）" : "视频",
-      url: fileUrl(r.f + (r.a ? "-audio.mp4" : ".mp4")),
+      url: fileUrl(r.f + vsuf),
       type: "video",
+      rel: r.f + vsuf,     // 抽帧时把它交给后端 —— 后端只认相对路径，不认预览 URL
     });
   }
   if (ks.has("png")) {
@@ -1925,6 +1963,7 @@ function renderPreview() {
   const it = pv.items[pv.idx];
   if (!it) return;
   pv.body.innerHTML = "";
+  if (pv.bar) pv.bar.classList.remove("on");   // 换媒体先收起抽帧条，视频分支再打开
 
   if (it.type === "video") {
     const v = document.createElement("video");
@@ -1938,6 +1977,7 @@ function renderPreview() {
         "读取失败。该文件可能已被移动或删除。</div>";
     };
     pv.body.appendChild(v);
+    bindFrameBar(v, it);
   } else {
     const img = document.createElement("img");
     img.src = it.url;
@@ -1958,6 +1998,131 @@ function renderPreview() {
   }
   pv.scale = 1;
   pv.applyZoom();
+}
+
+/* -------------------------------------------------------------- 抽帧（v1.2.0）
+
+取向：这不是「批量切图」，是「我眼睛看到这一帧，你把它给我留下来」。
+所以交互是 —— 播到差不多就暂停（或输入秒数跳过去）→ 看清了 → 点抽帧。
+抽出来的帧存到 输出目录\抽帧\<视频名>\，并带上原视频的提示词，
+这样它在档案库里能看出出处，不是一张没头没尾的孤儿图。
+
+干活的是本机已有的 ffmpeg（探测逻辑在后端 frames.py），插件本身不带任何依赖。
+找不到 ffmpeg 就把按钮置灰并说清原因 —— 不崩、不假装能用。 */
+
+function frameSecText(t) {
+  const x = Number(t);
+  return isFinite(x) && x >= 0 ? x.toFixed(2) : "0.00";
+}
+
+async function ensureFrameCapability() {
+  if (S.ffmpeg) return S.ffmpeg;
+  try {
+    const r = await fetch(FRAMES_API);
+    S.ffmpeg = await r.json();
+  } catch (e) {
+    S.ffmpeg = { ok: false, ready: false, reason: "探测失败：" + (e && e.message ? e.message : e) };
+  }
+  return S.ffmpeg;
+}
+
+function bindFrameBar(v, it) {
+  const pv = PV;
+  if (!pv || !pv.bar) return;
+  // 一行一个 —— chk5 的静态体检不认「const a = x, b = y」这种逗号连写，
+  // 会把逗号后面的变量报成「未声明就使用」。顺着它写，省得每跑一次多一条假警报。
+  const bar = pv.bar;
+  const tc = pv.tc;
+  const seek = pv.seek;
+  const grab = pv.grab;
+  const msg = pv.msg;
+  const openLink = pv.openLink;
+
+  bar.classList.add("on");
+  msg.textContent = "";
+  msg.className = "papv-msg";
+  msg.title = "";
+  openLink.classList.remove("on");
+  openLink.dataset.dir = "";
+  seek.value = "";
+  grab.disabled = false;
+  grab.textContent = "抽帧保存";
+  grab.title = "把当前这一帧存成 PNG";
+
+  const tick = () => {
+    tc.textContent = frameSecText(v.currentTime) + " / " + frameSecText(v.duration) + " s";
+  };
+  v.addEventListener("timeupdate", tick);
+  v.addEventListener("loadedmetadata", tick);
+  v.addEventListener("seeked", tick);
+  tick();
+
+  // 本机有没有 ffmpeg？没有就把按钮关掉，并说清为什么
+  ensureFrameCapability().then((cap) => {
+    if (!cap || cap.ready) return;
+    grab.disabled = true;
+    grab.title = cap.reason || "本机没找到 ffmpeg";
+    msg.className = "papv-msg bad";
+    msg.textContent = "抽帧用不了 —— " + (cap.reason || "本机没找到 ffmpeg");
+  });
+
+  // 输入秒数 → 跳过去并暂停。「看清了再抽」才是这个功能的重点
+  seek.onkeydown = (e) => {
+    if (e.key !== "Enter") return;
+    const t = parseFloat(seek.value);
+    if (!isFinite(t)) {
+      msg.className = "papv-msg bad";
+      msg.textContent = "秒数得是数字，例如 3.42";
+      return;
+    }
+    const lim = (isFinite(v.duration) && v.duration > 0) ? v.duration : t;
+    v.currentTime = Math.max(0, Math.min(t, lim));
+    v.pause();
+    msg.className = "papv-msg";
+    msg.textContent = "";
+  };
+
+  openLink.onclick = async () => {
+    const d = openLink.dataset.dir;
+    if (!d) return;
+    try {
+      await postJSON(FRAME_API, { action: "open", dir: d });
+    } catch (e) {
+      msg.className = "papv-msg bad";
+      msg.textContent = "打不开：" + (e && e.message ? e.message : e);
+    }
+  };
+
+  grab.onclick = async () => {
+    if (!it.rel) return;
+    // 正好停在片尾时 ffmpeg 可能取不到帧 —— 往回挪一点点
+    let t = v.currentTime || 0;
+    if (isFinite(v.duration) && v.duration > 0 && t > v.duration - 0.05) {
+      t = Math.max(0, v.duration - 0.05);
+    }
+    v.pause();
+    grab.disabled = true;
+    grab.textContent = "抽帧中…";
+    msg.className = "papv-msg";
+    msg.textContent = "";
+    try {
+      const res = await postJSON(FRAME_API, { action: "grab", f: it.rel, t: t });
+      const r = res.result || {};
+      msg.className = "papv-msg ok";
+      msg.textContent = "已存到 " + r.rel +
+        (r.stamped ? "（带原片提示词）" : "") +
+        " · " + Math.round((r.size || 0) / 1024) + " KB";
+      msg.title = r.rel || "";
+      openLink.dataset.dir = r.dir_rel || "";
+      openLink.classList.add("on");
+      grab.textContent = "再抽一帧";
+    } catch (e) {
+      msg.className = "papv-msg bad";
+      msg.textContent = (e && e.message) ? e.message : "抽帧失败";
+      grab.textContent = "抽帧保存";
+    }
+    grab.disabled = false;
+  };
 }
 
 /* ------------------------------------------------------------------ 杂项 */
